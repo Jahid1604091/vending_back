@@ -1,0 +1,122 @@
+const axios = require("axios");
+const dotenv = require("dotenv");
+const { loadTokens, saveTokens } = require("./models");
+dotenv.config();
+
+let accessToken = null;
+let refreshToken = null;
+
+// Login to get initial tokens
+async function login() {
+  const res = await axios.post(process.env.TOKEN_API, {
+    username: process.env.VU_USERNAME,
+    password: process.env.VU_PASSWORD,
+  });
+
+  accessToken = res.data.access;
+  refreshToken = res.data.refresh;
+  saveTokens(accessToken, refreshToken);
+  return { accessToken, refreshToken };
+}
+
+// Refresh access token
+async function refreshAccessToken() {
+  if (!refreshToken) {
+    console.log("No refresh token, re-login required");
+    throw new Error("No refresh token available");
+  }
+  console.log(`*****Calling Refresh API******`);
+  const res = await axios.post(process.env.REFRESH_TOKEN_API, {
+    refresh: refreshToken,
+  });
+
+  accessToken = res.data.access;
+  saveTokens(accessToken, refreshToken);
+  return accessToken;
+}
+
+// Wrapper for authenticated requests
+async function authRequest(url, options = {}, retry = true) {
+  await loadTokens().then(([a, r]) => {
+    accessToken = a;
+    refreshToken = r;
+  });
+
+  try {
+    if (!accessToken) {
+      //calling Login api if no access token found
+      console.log("No access token, logging in...");
+      await login();
+    }
+
+    const res = await axios({
+      url,
+      method: options.method || "GET",
+      headers: {
+        ...options.headers,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      data: options.data || undefined,
+      params: options.params || undefined,
+    });
+
+    return res;
+  } catch (err) {
+    if (err.response?.status === 401 && retry) {
+      console.log("Access token expired, refreshing...");
+      await refreshAccessToken();
+      return authRequest(url, options, false); // retry once
+    }
+    throw err;
+  }
+}
+
+// Check card balance
+async function checkCardBalance(cardData) {
+  if (!cardData) {
+    console.log("Order failed: No card data");
+    return res
+      .status(400)
+      .json({ error: "Please insert the card for checkout" });
+  }
+
+  try {
+    const { data } = await authRequest(
+      `${process.env.BALANCE_CHECK_API}${cardData.userid}/balance/`
+    );
+    return data.balance || 0;
+  } catch (err) {
+    console.error("Balance check failed:", err.response?.data || err.message);
+    return 0;
+    // return res.status(500).json({ error: "Unable to check balance" });
+  }
+}
+
+// Record consumption
+async function recordConsumption(cardData, amount) {
+  if (!cardData) {
+    throw new Error("No card data for recording consumption");
+  }
+  try {
+    const res = await authRequest(`${process.env.CONSUMPTION_API}`, {
+      method: "POST",
+      data: {
+        reference: cardData.userid,
+        cost: amount,
+        service: 3,
+      },
+    });
+
+    console.log(`Consumption recorded successfully:`, res.data);
+  } catch (err) {
+    console.error("Failed to record consumption:", err.message);
+  }
+}
+
+module.exports = {
+  authRequest,
+  login,
+  refreshAccessToken,
+  checkCardBalance,
+  recordConsumption,
+};
