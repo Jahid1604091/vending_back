@@ -193,13 +193,15 @@ app.post("/api/order", async(req, res) => {
   });
 });
 
+const imagePath = path.join(__dirname, process.env.IMAGE_UPLOAD_PATH);
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, "public/images")),
+  destination: (req, file, cb) => cb(null, imagePath),
   filename: (req, file, cb) => {
     const { id } = req.params;
     const ext = path.extname(file.originalname).toLowerCase();
     const newFilename = `product${id}${ext}`;
-    const filePath = path.join(__dirname, "public/images", newFilename);
+    const filePath = path.join(imagePath, newFilename);
     // Delete existing image with the same name, if it exists
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
@@ -377,7 +379,7 @@ app.get("/api/esp32-status", (req, res) => {
 });
 
 app.listen(process.env.PORT || 5001, () => {
-  console.log(`Backend running on ${process.env.PORT || 5001}`);
+  console.log(`Server running on PORT ${process.env.PORT || 5001}`);
   createUsersTable((err) => {
     if (err) console.error("Error creating users table:", err.message);
     else console.log("✅ Users table created");
