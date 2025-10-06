@@ -32,7 +32,7 @@ function createUsersTable(callback) {
 }
 
 function createTokensTable(callback) {
-db.run(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS tokens (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       access TEXT,
@@ -40,7 +40,14 @@ db.run(`
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `, (err) => {
-    if (err) console.error("Error creating tokens table:", err.message);
+    if (err) {
+      console.error("Error creating tokens table:", err.message);
+      callback(err);
+    }
+    else {
+      console.log("Tokens table created or already exists");
+      callback(null);
+    }
   });
 }
 
@@ -68,6 +75,19 @@ function createOrdersTable(callback) {
 
 try {
   db.serialize(() => {
+    // Create all tables first
+    createTokensTable((err) => {
+      if (err) process.exit(1);
+    });
+
+    createUsersTable((err) => {
+      if (err) process.exit(1);
+    });
+
+    createOrdersTable((err) => {
+      if (err) process.exit(1);
+    });
+
     db.run(
       `CREATE TABLE IF NOT EXISTS admins (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,8 +104,8 @@ try {
       }
     );
 
-    const defaultUsername = process.env.ADMIN_USERNAME ;
-    const defaultPassword = process.env.ADMIN_PASSWORD ;
+    const defaultUsername = process.env.ADMIN_USERNAME;
+    const defaultPassword = process.env.ADMIN_PASSWORD;
     const saltRounds = 10;
 
     db.get(
@@ -156,17 +176,6 @@ try {
         }
       }
     );
-
-    createTokensTable((err) => {
-      if (err) process.exit(1);
-    });
-
-    createUsersTable((err) => {
-      if (err) process.exit(1);
-    });
-    createOrdersTable((err) => {
-      if (err) process.exit(1);
-    });
   });
 } catch (err) {
   console.error("Database initialization error:", err.message);

@@ -1,6 +1,7 @@
 const mqtt = require("mqtt");
 const { addUser } = require("./models");
 const dotenv = require("dotenv");
+const { checkCardBalance } = require("./utils");
 dotenv.config();
 
 let shelfStatus = { 1: false, 2: false, 3: false, 4: false, 5: false };
@@ -54,7 +55,7 @@ client.on("close", () => {
   cardData = null;
 });
 
-client.on("message", (topic, message) => {
+client.on("message", async(topic, message) => {
   try {
     console.log(`📥 Received MQTT message on ${topic}: ${message.toString()}`);
     if (topic.startsWith("vending/heartbit/")) {
@@ -71,18 +72,19 @@ client.on("message", (topic, message) => {
         return;
       } else {
         const data = JSON.parse(message.toString());
+        const cardBalance = await checkCardBalance(data);
         if (
           typeof data.userid === "string" &&
           data.userid &&
           typeof data.username === "string" &&
           data.username &&
-          typeof data.credit === "number" &&
-          data.credit > 0
+          typeof cardBalance === "number" &&
+          cardBalance >= 0
         ) {
           cardData = {
             userid: data.userid,
             username: data.username,
-            credit: data.credit,
+            credit: cardBalance,
           };
           console.log("📋 Stored cardData:", JSON.stringify(cardData));
 

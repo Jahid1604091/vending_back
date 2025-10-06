@@ -118,14 +118,14 @@ app.post("/api/order", async(req, res) => {
  const cardBalance =  await checkCardBalance(cardData);
 
   if (!userid || !username || cardBalance <= 0) {
-    console.log("Order failed: Invalid card data:", cardData);
-    return res.status(400).json({ error: "Invalid user card" });
+    console.log("Order failed: Invalid card data:", cardBalance);
+    return res.status(400).json({ error: "Invalid user card or Balance Low!" });
   }
 
   getUserByUserid(userid, (err, user) => {
     if (err || !user || user.name !== username) {
       console.log("Order failed: Card data does not match any user:", cardData);
-      return res.status(400).json({ error: "Invalid user card" });
+      return res.status(400).json({ error: "Invalid user! " });
     }
 
     getAllProducts((err, allProducts) => {
