@@ -55,7 +55,7 @@ client.on("close", () => {
   cardData = null;
 });
 
-client.on("message", async(topic, message) => {
+client.on("message", async (topic, message) => {
   try {
     console.log(`📥 Received MQTT message on ${topic}: ${message.toString()}`);
     if (topic.startsWith("vending/heartbit/")) {
@@ -69,7 +69,6 @@ client.on("message", async(topic, message) => {
       if (message.toString() == "Card removed") {
         cardData = null;
         console.log("🗑️ Card removed, cleared cardData");
-        return;
       } else {
         const data = JSON.parse(message.toString());
         const cardBalance = await checkCardBalance(data);
@@ -113,6 +112,18 @@ client.on("message", async(topic, message) => {
           cardData = null;
         }
       }
+      client.publish(
+        process.env.MQTT_TOPIC_CARD_RESPONSE,
+        JSON.stringify(cardData),
+        { qos: 1 },
+        (err) => {
+          if (err) {
+            console.error("❌ Failed to publish card data:", err.message);
+          } else {
+            console.log("📤 Published card data:", JSON.stringify(cardData));
+          }
+        }
+      );
     }
   } catch (err) {
     console.error("❌ Error in MQTT message handler:", err.message);
