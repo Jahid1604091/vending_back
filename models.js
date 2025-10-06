@@ -35,6 +35,7 @@ function createTokensTable(callback) {
   db.run(`
     CREATE TABLE IF NOT EXISTS tokens (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userid TEXT NOT NULL,
       access TEXT,
       refresh TEXT,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -341,22 +342,22 @@ function deleteUser(userid, callback) {
   });
 }
 
-function saveTokens(accessToken, refreshToken) {
+function saveTokens(userid, accessToken, refreshToken) {
   db.run(
-    `DELETE FROM tokens`,
-    [],
+    `DELETE FROM tokens WHERE userid = ?`,
+    [userid],
     () => {
       db.run(
-        `INSERT INTO tokens (access, refresh) VALUES (?, ?)`,
-        [accessToken, refreshToken]
+        `INSERT INTO tokens (userid, access, refresh) VALUES (?, ?, ?)`,
+        [userid, accessToken, refreshToken]
       );
     }
   );
 }
 
-async function loadTokens() {
+async function loadTokens(userid) {
   return new Promise((resolve, reject) => {
-    db.get(`SELECT access, refresh FROM tokens LIMIT 1`, [], (err, row) => {
+    db.get(`SELECT access, refresh FROM tokens WHERE userid = ?`, [userid], (err, row) => {
       if (row) {
         resolve([row.access, row.refresh]);
       } else {

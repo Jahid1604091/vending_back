@@ -117,13 +117,13 @@ app.post("/api/order", async(req, res) => {
   //check credit from api not card
  const cardBalance =  await checkCardBalance(cardData);
 
-  if (!userid || !username || cardBalance <= 0) {
+  if (!userid ||  cardBalance <= 0) {
     console.log("Order failed: Invalid card data:", cardBalance);
     return res.status(400).json({ error: "Invalid user card or Balance Low!" });
   }
 
   getUserByUserid(userid, (err, user) => {
-    if (err || !user || user.name !== username) {
+    if (err || !user ) {
       console.log("Order failed: Card data does not match any user:", cardData);
       return res.status(400).json({ error: "Invalid user! " });
     }

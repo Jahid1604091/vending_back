@@ -7,7 +7,7 @@ let accessToken = null;
 let refreshToken = null;
 
 // Login to get initial tokens
-async function login() {
+async function login(userid) {
   const res = await axios.post(process.env.TOKEN_API, {
     username: process.env.VU_USERNAME,
     password: process.env.VU_PASSWORD,
@@ -15,12 +15,12 @@ async function login() {
 
   accessToken = res.data.access;
   refreshToken = res.data.refresh;
-  saveTokens(accessToken, refreshToken);
+  saveTokens(userid, accessToken, refreshToken);
   return { accessToken, refreshToken };
 }
 
 // Refresh access token
-async function refreshAccessToken() {
+async function refreshAccessToken(userid) {
   if (!refreshToken) {
     console.log("No refresh token, re-login required");
     throw new Error("No refresh token available");
@@ -31,13 +31,13 @@ async function refreshAccessToken() {
   });
 
   accessToken = res.data.access;
-  saveTokens(accessToken, refreshToken);
+  saveTokens(userid, accessToken, refreshToken);
   return accessToken;
 }
 
 // Wrapper for authenticated requests
 async function authRequest(url, options = {}, retry = true) {
-  await loadTokens().then(([a, r]) => {
+  await loadTokens(options.userid).then(([a, r]) => {
     accessToken = a;
     refreshToken = r;
   });
@@ -46,7 +46,7 @@ async function authRequest(url, options = {}, retry = true) {
     if (!accessToken) {
       //calling Login api if no access token found
       console.log("No access token, logging in...");
-      await login();
+      await login(options.userid);
     }
 
     const res = await axios({
@@ -64,7 +64,7 @@ async function authRequest(url, options = {}, retry = true) {
   } catch (err) {
     if (err.response?.status === 401 && retry) {
       console.log("Access token expired, refreshing...");
-      await refreshAccessToken();
+      await refreshAccessToken(options.userid);
       return authRequest(url, options, false); // retry once
     }
     throw err;
@@ -82,7 +82,8 @@ async function checkCardBalance(cardData) {
 
   try {
     const { data } = await authRequest(
-      `${process.env.BALANCE_CHECK_API}${cardData.userid}/balance/`
+      `${process.env.BALANCE_CHECK_API}${cardData.userid}/balance/`,
+      { userid: cardData.userid }
     );
     return data.balance || 0;
   } catch (err) {
