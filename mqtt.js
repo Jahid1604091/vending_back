@@ -102,13 +102,12 @@ client.on("message", async(topic, message) => {
               );
             }
           });
-
-          setTimeout(() => {
-            if (cardData && cardData.userid === data.userid) {
-              cardData = null;
-              console.log("🕒 Cleared cardData due to timeout");
-            }
-          }, process.env.CARD_REMOVE_TIMEOUT || 30000);
+          // setTimeout(() => {
+          //   if (cardData && cardData.userid === data.userid) {
+          //     cardData = null;
+          //     console.log("🕒 Cleared cardData due to timeout");
+          //   }
+          // }, process.env.CARD_REMOVE_TIMEOUT || 30000);
         } else {
           console.warn("⚠️ Invalid card/data:", message.toString());
           cardData = null;

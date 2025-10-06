@@ -238,7 +238,7 @@ app.post("/api/products/:id/image", upload.single("image"), (req, res, next) => 
 app.get("/api/card-data", (req, res) => {
   const cardData = getCardData();
   console.log("📋 Sending card data:", cardData || "No card data");
-  res.json(cardData || { error: "No card data" });
+  res.json(cardData || { error: "Card is not inserted or data is missing" });
 });
 
 app.get("/api/users", authenticateAdmin, (req, res) => {
