@@ -76,7 +76,6 @@ app.get("/api/products", (req, res) => {
       console.error("Error fetching products:", err.message);
       res.status(500).json({ error: `Failed to fetch products: ${err.message}` });
     } else {
-      console.log(`Fetched ${rows.length} products`);
       res.json(rows);
     }
   });
@@ -100,13 +99,14 @@ app.put("/api/products/:id", authenticateAdmin, (req, res) => {
 
 app.post("/api/order", async(req, res) => {
   const orderProducts = req.body.products;
-  console.log("POST /api/order received:", orderProducts);
+  const cardDataFromClient = req.body.cardData;
+
   if (!orderProducts || !Array.isArray(orderProducts) || orderProducts.length === 0) {
     console.log("Order failed: Invalid or empty products array");
     return res.status(400).json({ error: "Invalid or empty products array" });
   }
 
-  const cardData = await getCardData();
+  const cardData = cardDataFromClient || await getCardData();
   if (!cardData) {
     console.log("Order failed: No card data");
     return res.status(400).json({ error: "Please insert the card for checkout" });
@@ -248,7 +248,6 @@ app.get("/api/users", authenticateAdmin, (req, res) => {
       console.error("Error fetching users:", err.message);
       res.status(500).json({ error: `Failed to fetch users: ${err.message}` });
     } else {
-      console.log(`✅ Fetched ${rows.length} users`);
       res.json(rows);
     }
   });
@@ -380,12 +379,12 @@ app.get("/api/esp32-status", (req, res) => {
 
 app.listen(process.env.PORT || 5001, () => {
   console.log(`Server running on PORT ${process.env.PORT || 5001}`);
-  createUsersTable((err) => {
-    if (err) console.error("Error creating users table:", err.message);
-    else console.log("✅ Users table created");
-  });
-  createOrdersTable((err) => {
-    if (err) console.error("Error creating orders table:", err.message);
-    else console.log("✅ Orders table created");
-  });
+  // createUsersTable((err) => {
+  //   if (err) console.error("Error creating users table:", err.message);
+  //   else console.log("✅ Users table created");
+  // });
+  // createOrdersTable((err) => {
+  //   if (err) console.error("Error creating orders table:", err.message);
+  //   else console.log("✅ Orders table created");
+  // });
 });
