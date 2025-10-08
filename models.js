@@ -342,7 +342,7 @@ function deleteUser(userid, callback) {
   });
 }
 
-function saveTokens(userid, accessToken, refreshToken) {
+async function saveTokens(userid, accessToken, refreshToken) {
   db.run(
     `DELETE FROM tokens WHERE userid = ?`,
     [userid],

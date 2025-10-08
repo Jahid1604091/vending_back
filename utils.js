@@ -15,7 +15,7 @@ async function login(userid) {
 
   accessToken = res.data.access;
   refreshToken = res.data.refresh;
-  saveTokens(userid, accessToken, refreshToken);
+  await saveTokens(userid, accessToken, refreshToken);
   return { accessToken, refreshToken };
 }
 
@@ -45,8 +45,12 @@ async function authRequest(url, options = {}, retry = true) {
   try {
     if (!accessToken) {
       //calling Login api if no access token found
-      console.log("No access token, logging in...");
+      console.log("No access token, logging in...",options.userid);
       await login(options.userid);
+      await loadTokens(options.userid).then(([a, r]) => {
+        accessToken = a;
+        refreshToken = r;
+      });
     }
 
     const res = await axios({
@@ -100,6 +104,7 @@ async function recordConsumption(cardData, amount) {
   }
   try {
     const res = await authRequest(`${process.env.CONSUMPTION_API}`, {
+      userid:cardData.userid,
       method: "POST",
       data: {
         reference: cardData.userid,
