@@ -71,8 +71,7 @@ client.on("message", async (topic, message) => {
         console.log("🗑️ Card removed, cleared cardData");
       } else {
         const data = JSON.parse(message.toString());
-        // const cardBalance = await checkCardBalance(data);
-        const cardBalance = 0;
+        const cardBalance = await checkCardBalance(data);
         if (
           typeof data.userid === "string" &&
           data.userid &&
@@ -86,7 +85,6 @@ client.on("message", async (topic, message) => {
             username: data.username,
             credit: cardBalance,
           };
-          console.log("📋 Stored cardData:", JSON.stringify(cardData));
 
           addUser(cardData.userid, cardData.username, (err) => {
             console.log(err);
