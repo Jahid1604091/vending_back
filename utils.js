@@ -97,9 +97,7 @@ async function authRequest(url, options = {}, retry = true) {
 async function checkCardBalance(cardData) {
   if (!cardData) {
     console.log("Order failed: No card data");
-    return res
-      .status(400)
-      .json({ error: "Please insert the card for checkout" });
+    return 0;
   }
 
   try {

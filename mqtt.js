@@ -71,14 +71,13 @@ client.on("message", async (topic, message) => {
         console.log("🗑️ Card removed, cleared cardData");
       } else {
         const data = JSON.parse(message.toString());
-        const cardBalance = await checkCardBalance(data);
+        const cardBalance = 0;
+        //  await checkCardBalance(data);
         if (
           typeof data.userid === "string" &&
           data.userid &&
           typeof data.username === "string" &&
-          data.username &&
-          typeof cardBalance === "number" &&
-          cardBalance >= 0
+          data.username 
         ) {
           cardData = {
             userid: data.userid,

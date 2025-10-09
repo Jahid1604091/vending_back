@@ -41,7 +41,11 @@ app.use("/images", express.static(path.join(__dirname, "public/images")));
 
 async function authenticateAdmin(req, res, next) {
   const adminId = (req.body || {}).adminId || (req.query || {}).adminId;
-  console.log(`Authenticating request: adminId=${adminId}, method=${req.method}, url=${req.url}, body=${JSON.stringify(req.body)}, query=${JSON.stringify(req.query)}`);
+  console.log(
+    `Authenticating request: adminId=${adminId}, method=${req.method}, url=${
+      req.url
+    }, body=${JSON.stringify(req.body)}, query=${JSON.stringify(req.query)}`
+  );
   if (!adminId) {
     console.log("Authentication failed: No adminId provided");
     return res.status(401).json({ error: "Unauthorized: No adminId provided" });
@@ -51,7 +55,10 @@ async function authenticateAdmin(req, res, next) {
     const admin = await new Promise((resolve, reject) => {
       getAdminById(adminId, (err, row) => {
         if (err) {
-          console.error(`Error fetching admin for adminId=${adminId}:`, err.message);
+          console.error(
+            `Error fetching admin for adminId=${adminId}:`,
+            err.message
+          );
           reject(err);
         } else {
           resolve(row);
@@ -59,14 +66,18 @@ async function authenticateAdmin(req, res, next) {
       });
     });
     if (!admin) {
-      console.log(`Authentication failed: No admin found for adminId=${adminId}`);
+      console.log(
+        `Authentication failed: No admin found for adminId=${adminId}`
+      );
       return res.status(401).json({ error: "Unauthorized: Invalid adminId" });
     }
     req.admin = admin;
     next();
   } catch (err) {
     console.error("Authentication error:", err.message);
-    res.status(500).json({ error: `Server error during authentication: ${err.message}` });
+    res
+      .status(500)
+      .json({ error: `Server error during authentication: ${err.message}` });
   }
 }
 
@@ -74,7 +85,9 @@ app.get("/api/products", (req, res) => {
   getAllProducts((err, rows) => {
     if (err) {
       console.error("Error fetching products:", err.message);
-      res.status(500).json({ error: `Failed to fetch products: ${err.message}` });
+      res
+        .status(500)
+        .json({ error: `Failed to fetch products: ${err.message}` });
     } else {
       res.json(rows);
     }
@@ -84,12 +97,17 @@ app.get("/api/products", (req, res) => {
 app.put("/api/products/:id", authenticateAdmin, (req, res) => {
   const { id } = req.params;
   const { name, price, quantity } = req.body;
-  console.log(`PUT /api/products/${id}: name=${name}, price=${price}, quantity=${quantity}`);
+  console.log(
+    `PUT /api/products/${id}: name=${name}, price=${price}, quantity=${quantity}`
+  );
 
   updateProduct(id, name, price, quantity, null, (err) => {
     if (err) {
       console.error(`Error updating product ${id}:`, err.message);
-      res.status(500).json({ success: false, message: `Failed to update product: ${err.message}` });
+      res.status(500).json({
+        success: false,
+        message: `Failed to update product: ${err.message}`,
+      });
     } else {
       console.log(`✅ Updated product ${id}`);
       res.json({ success: true, message: "Product updated" });
@@ -97,33 +115,39 @@ app.put("/api/products/:id", authenticateAdmin, (req, res) => {
   });
 });
 
-app.post("/api/order", async(req, res) => {
+app.post("/api/order", async (req, res) => {
   const orderProducts = req.body.products;
   const cardDataFromClient = req.body.cardData;
 
-  if (!orderProducts || !Array.isArray(orderProducts) || orderProducts.length === 0) {
+  if (
+    !orderProducts ||
+    !Array.isArray(orderProducts) ||
+    orderProducts.length === 0
+  ) {
     console.log("Order failed: Invalid or empty products array");
     return res.status(400).json({ error: "Invalid or empty products array" });
   }
 
-  const cardData = cardDataFromClient || await getCardData();
+  const cardData = cardDataFromClient || (await getCardData());
   if (!cardData) {
     console.log("Order failed: No card data");
-    return res.status(400).json({ error: "Please insert the card for checkout" });
+    return res
+      .status(400)
+      .json({ error: "Please insert the card for checkout" });
   }
 
   const { userid, username, credit } = cardData;
 
   //check credit from api not card
- const cardBalance =  await checkCardBalance(cardData);
+  const cardBalance = await checkCardBalance(cardData);
 
-  if (!userid ||  cardBalance <= 0) {
+  if (!userid || cardBalance <= 0) {
     console.log("Order failed: Invalid card data:", cardBalance);
     return res.status(400).json({ error: "Invalid user card or Balance Low!" });
   }
 
   getUserByUserid(userid, (err, user) => {
-    if (err || !user ) {
+    if (err || !user) {
       console.log("Order failed: Card data does not match any user:", cardData);
       return res.status(400).json({ error: "Invalid user! " });
     }
@@ -131,7 +155,9 @@ app.post("/api/order", async(req, res) => {
     getAllProducts((err, allProducts) => {
       if (err) {
         console.error("Error fetching products for order:", err.message);
-        return res.status(500).json({ error: `Failed to fetch products: ${err.message}` });
+        return res
+          .status(500)
+          .json({ error: `Failed to fetch products: ${err.message}` });
       }
 
       let total = 0;
@@ -145,14 +171,19 @@ app.post("/api/order", async(req, res) => {
       });
 
       if (cardBalance < total) {
-        console.log("Order failed: Insufficient cardBalance:", { cardBalance, total });
+        console.log("Order failed: Insufficient cardBalance:", {
+          cardBalance,
+          total,
+        });
         return res.status(400).json({ error: "Insufficient cardBalance" });
       }
 
       sendOrderMQTT(validProducts, (err, result) => {
         if (err) {
           console.error("Order error:", err.message);
-          return res.status(500).json({ error: `Order failed: ${err.message}` });
+          return res
+            .status(500)
+            .json({ error: `Order failed: ${err.message}` });
         }
 
         const { successfulProducts, failedProducts } = result;
@@ -161,29 +192,36 @@ app.post("/api/order", async(req, res) => {
         placeOrder(successfulProducts, (err) => {
           if (err) {
             console.error("Database error:", err.message);
-            return res.status(500).json({ error: `Database error: ${err.message}` });
+            return res
+              .status(500)
+              .json({ error: `Database error: ${err.message}` });
           }
 
           const cart = orderProducts.map((p) => ({
             ...p,
             failed: failedProducts.some((fp) => fp.id === p.id),
-            name: allProducts.find((prod) => prod.id === p.id)?.name || "Unknown",
-            image: allProducts.find((prod) => prod.id === p.id)?.image || "/images/fallback.jpg",
+            name:
+              allProducts.find((prod) => prod.id === p.id)?.name || "Unknown",
+            image:
+              allProducts.find((prod) => prod.id === p.id)?.image ||
+              "/images/fallback.jpg",
           }));
 
           saveOrderSummary(userid, username, orderProducts, total, (err) => {
             if (err) {
               console.error("Error saving order summary:", err.message);
-              return res.status(500).json({ error: `Failed to save order summary: ${err.message}` });
+              return res.status(500).json({
+                error: `Failed to save order summary: ${err.message}`,
+              });
             }
 
             // Record consumption only if ESP32 is connected
-            if(getEsp32Status()){ 
+            if (getEsp32Status()) {
               recordConsumption(cardData, total).catch((err) => {
                 console.error("Error recording consumption:", err.message);
               });
             }
-         
+
             console.log("Order placed successfully:", cart);
             res.json({ success: true, message: "Order processed", cart });
           });
@@ -212,28 +250,49 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-app.post("/api/products/:id/image", upload.single("image"), (req, res, next) => {
-  console.log(`POST /api/products/${req.params.id}/image: Processing FormData, file=${req.file?.filename || "none"}, body=${JSON.stringify(req.body)}`);
-  next();
-}, authenticateAdmin, (req, res) => {
-  const { id } = req.params;
-  console.log(`POST /api/products/${id}/image: file=${req.file?.filename || "none"}, body=${JSON.stringify(req.body)}, adminId=${req.body.adminId || req.query.adminId}`);
-  if (!req.file) {
-    console.error(`Error updating product image ${id}: No file uploaded`);
-    return res.status(400).json({ success: false, message: "No image provided" });
-  }
-  const image = `/images/${req.file.filename}`;
-
-  updateProduct(id, null, null, null, image, (err) => {
-    if (err) {
-      console.error(`Error updating product image ${id}:`, err.message);
-      res.status(500).json({ success: false, message: `Failed to update product image: ${err.message}` });
-    } else {
-      console.log(`✅ Updated image for product ${id}: ${image}`);
-      res.json({ success: true, message: "Image updated", image });
+app.post(
+  "/api/products/:id/image",
+  upload.single("image"),
+  (req, res, next) => {
+    console.log(
+      `POST /api/products/${req.params.id}/image: Processing FormData, file=${
+        req.file?.filename || "none"
+      }, body=${JSON.stringify(req.body)}`
+    );
+    next();
+  },
+  authenticateAdmin,
+  (req, res) => {
+    const { id } = req.params;
+    console.log(
+      `POST /api/products/${id}/image: file=${
+        req.file?.filename || "none"
+      }, body=${JSON.stringify(req.body)}, adminId=${
+        req.body.adminId || req.query.adminId
+      }`
+    );
+    if (!req.file) {
+      console.error(`Error updating product image ${id}: No file uploaded`);
+      return res
+        .status(400)
+        .json({ success: false, message: "No image provided" });
     }
-  });
-});
+    const image = `/images/${req.file.filename}`;
+
+    updateProduct(id, null, null, null, image, (err) => {
+      if (err) {
+        console.error(`Error updating product image ${id}:`, err.message);
+        res.status(500).json({
+          success: false,
+          message: `Failed to update product image: ${err.message}`,
+        });
+      } else {
+        console.log(`✅ Updated image for product ${id}: ${image}`);
+        res.json({ success: true, message: "Image updated", image });
+      }
+    });
+  }
+);
 
 app.get("/api/card-data", (req, res) => {
   const cardData = getCardData();
@@ -297,7 +356,9 @@ app.post("/api/login", async (req, res) => {
   console.log(`POST /api/login: username=${username}`);
   if (!username || !password) {
     console.log("Login failed: Missing username or password");
-    return res.status(400).json({ success: false, message: "Username and password are required" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Username and password are required" });
   }
 
   try {
@@ -315,10 +376,14 @@ app.post("/api/login", async (req, res) => {
 
     if (!admin) {
       console.log("Login failed: Invalid username or password");
-      return res.status(401).json({ success: false, message: "Invalid username or password" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid username or password" });
     }
 
-    console.log(`✅ Login successful for username=${username}, adminId=${admin.id}`);
+    console.log(
+      `✅ Login successful for username=${username}, adminId=${admin.id}`
+    );
     res.json({
       success: true,
       message: "Login successful",
@@ -327,13 +392,18 @@ app.post("/api/login", async (req, res) => {
     });
   } catch (err) {
     console.error("Login error:", err.message);
-    res.status(500).json({ success: false, message: `Server error during login: ${err.message}` });
+    res.status(500).json({
+      success: false,
+      message: `Server error during login: ${err.message}`,
+    });
   }
 });
 
 app.put("/api/admin", authenticateAdmin, async (req, res) => {
   const { currentPassword, newUsername, newPassword, adminId } = req.body;
-  console.log(`PUT /api/admin: adminId=${adminId}, newUsername=${newUsername}, hasNewPassword=${!!newPassword}`);
+  console.log(
+    `PUT /api/admin: adminId=${adminId}, newUsername=${newUsername}, hasNewPassword=${!!newPassword}`
+  );
 
   try {
     const admin = await new Promise((resolve, reject) => {
@@ -344,37 +414,67 @@ app.put("/api/admin", authenticateAdmin, async (req, res) => {
     });
 
     if (!admin) {
-      console.log(`Admin update failed: No admin found for adminId: ${adminId}`);
-      return res.status(404).json({ success: false, message: "Admin not found" });
+      console.log(
+        `Admin update failed: No admin found for adminId: ${adminId}`
+      );
+      return res
+        .status(404)
+        .json({ success: false, message: "Admin not found" });
     }
 
     const valid = await bcrypt.compare(currentPassword, admin.password);
     if (!valid) {
-      console.log(`Admin update failed: Incorrect current password for adminId: ${adminId}`);
-      return res.status(401).json({ success: false, message: "Current password is incorrect" });
+      console.log(
+        `Admin update failed: Incorrect current password for adminId: ${adminId}`
+      );
+      return res
+        .status(401)
+        .json({ success: false, message: "Current password is incorrect" });
     }
 
-    const hashedPassword = newPassword ? await bcrypt.hash(newPassword, 10) : admin.password;
+    const hashedPassword = newPassword
+      ? await bcrypt.hash(newPassword, 10)
+      : admin.password;
     const updatedUsername = newUsername || admin.username;
 
-    updateAdminPasswordAndUsername(adminId, updatedUsername, hashedPassword, (err) => {
-      if (err) {
-        console.error("Admin update error:", err.message);
-        res.status(500).json({ success: false, message: `Failed to update admin credentials: ${err.message}` });
-      } else {
-        console.log(`✅ Admin credentials updated for adminId: ${adminId}`);
-        res.json({ success: true, message: "Admin credentials updated successfully" });
+    updateAdminPasswordAndUsername(
+      adminId,
+      updatedUsername,
+      hashedPassword,
+      (err) => {
+        if (err) {
+          console.error("Admin update error:", err.message);
+          res.status(500).json({
+            success: false,
+            message: `Failed to update admin credentials: ${err.message}`,
+          });
+        } else {
+          console.log(`✅ Admin credentials updated for adminId: ${adminId}`);
+          res.json({
+            success: true,
+            message: "Admin credentials updated successfully",
+          });
+        }
       }
-    });
+    );
   } catch (err) {
     console.error("Admin update error:", err.message);
-    res.status(500).json({ success: false, message: `Failed to update admin credentials: ${err.message}` });
+    res.status(500).json({
+      success: false,
+      message: `Failed to update admin credentials: ${err.message}`,
+    });
   }
 });
 
 app.get("/api/esp32-status", (req, res) => {
   console.log("GET /api/esp32-status");
   res.json({ connected: getEsp32Status() });
+});
+
+app.post("/api/check-balance", async (req, res) => {
+  const cardData = req.body.cardData;
+  const cardBalance = await checkCardBalance(cardData);
+  return res.status(200).json({ success: true, balance: cardBalance });
 });
 
 app.listen(process.env.PORT || 5001, () => {
