@@ -26,13 +26,27 @@ async function refreshAccessToken(userid) {
     throw new Error("No refresh token available");
   }
   console.log(`*****Calling Refresh API******`);
-  const res = await axios.post(process.env.REFRESH_TOKEN_API, {
-    refresh: refreshToken,
-  });
 
-  accessToken = res.data.access;
-  saveTokens(userid, accessToken, refreshToken);
-  return accessToken;
+  try {
+    const res = await axios.post(process.env.REFRESH_TOKEN_API, {
+      refresh: refreshToken,
+    });
+  
+    accessToken = res.data.access;
+    await saveTokens(userid, accessToken, refreshToken);
+    return accessToken;
+    
+  } catch (error) {
+    console.log('Refresh token expired, re-login');
+    await login(userid);
+
+    await loadTokens(userid).then(([a,r])=> {
+      accessToken = a;
+      refreshToken = r;
+    });
+
+    return accessToken;
+  }
 }
 
 // Wrapper for authenticated requests
@@ -69,7 +83,11 @@ async function authRequest(url, options = {}, retry = true) {
     if (err.response?.status === 401 && retry) {
       console.log("Access token expired, refreshing...");
       await refreshAccessToken(options.userid);
-      return authRequest(url, options, false); // retry once
+      await loadTokens(options.userid).then(([a, r]) => {
+        accessToken = a;
+        refreshToken = r;
+      });
+      return authRequest(url, options, false); 
     }
     throw err;
   }
