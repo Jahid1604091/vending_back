@@ -74,7 +74,7 @@ client.on("message", async (topic, message) => {
         const cardBalance = 0;
         //  await checkCardBalance(data);
         if (
-          typeof data.userid === "string" &&
+          typeof data.userid &&
           data.userid &&
           typeof data.username === "string" &&
           data.username 
