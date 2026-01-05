@@ -22,9 +22,20 @@ const {
   createOrdersTable,
   saveOrderSummary,
   deleteUser,
+  getAllGroups,
+  getGroupById,
+  createGroup,
+  updateGroup,
+  deleteGroup,
+  getProductsGrouped,
+  getAllProductsUngrouped,
+  bulkUpdateGroupProducts,
+  removeProductsFromGroup,
+  assignProductsToGroup,
+  getProductsByGroupId,
 } = require("./models");
 const { sendOrderMQTT, getEsp32Status, getCardData } = require("./mqtt");
-const { checkCardBalance, recordConsumption } = require("./utils");
+const { checkCardBalance, recordConsumption, distributeQuantity } = require("./utils");
 
 const app = express();
 app.use(cors());
@@ -82,7 +93,7 @@ async function authenticateAdmin(req, res, next) {
 }
 
 app.get("/api/products", (req, res) => {
-  getAllProducts((err, rows) => {
+  getProductsGrouped((err, rows) => {
     if (err) {
       console.error("Error fetching products:", err.message);
       res
@@ -96,12 +107,12 @@ app.get("/api/products", (req, res) => {
 
 app.put("/api/products/:id", authenticateAdmin, (req, res) => {
   const { id } = req.params;
-  const { name, price, quantity } = req.body;
+  const { name, price, quantity, group_id } = req.body;
   console.log(
-    `PUT /api/products/${id}: name=${name}, price=${price}, quantity=${quantity}`
+    `PUT /api/products/${id}: name=${name}, price=${price}, quantity=${quantity}, group_id=${group_id}`
   );
 
-  updateProduct(id, name, price, quantity, null, (err) => {
+  updateProduct(id, name, price, quantity, null, group_id, (err) => {
     if (err) {
       console.error(`Error updating product ${id}:`, err.message);
       res.status(500).json({
@@ -111,6 +122,19 @@ app.put("/api/products/:id", authenticateAdmin, (req, res) => {
     } else {
       console.log(`✅ Updated product ${id}`);
       res.json({ success: true, message: "Product updated" });
+    }
+  });
+});
+// Add this new endpoint for admin panel
+app.get("/api/products/all", authenticateAdmin, (req, res) => {
+  getAllProductsUngrouped((err, rows) => {
+    if (err) {
+      console.error("Error fetching all products:", err.message);
+      res
+        .status(500)
+        .json({ error: `Failed to fetch products: ${err.message}` });
+    } else {
+      res.json(rows);
     }
   });
 });
@@ -137,9 +161,7 @@ app.post("/api/order", async (req, res) => {
   }
 
   const { userid, username, credit } = cardData;
-
-  //check credit from api not card
-  const cardBalance = await checkCardBalance(cardData);
+  const cardBalance = 10000; //@modify later
 
   if (!userid || cardBalance <= 0) {
     console.log("Order failed: Invalid card data:", cardBalance);
@@ -152,7 +174,7 @@ app.post("/api/order", async (req, res) => {
       return res.status(400).json({ error: "Invalid user! " });
     }
 
-    getAllProducts((err, allProducts) => {
+    getProductsGrouped((err, allProducts) => {
       if (err) {
         console.error("Error fetching products for order:", err.message);
         return res
@@ -162,12 +184,21 @@ app.post("/api/order", async (req, res) => {
 
       let total = 0;
       const validProducts = orderProducts.map((p) => {
-        const product = allProducts.find((prod) => prod.id === p.id);
+        const product = allProducts.find((prod) => prod.display_id === p.id);
         if (!product || product.quantity < p.quantity) {
           return { ...p, failed: true };
         }
         total += product.price * p.quantity;
-        return p;
+        
+        // Prepare quantity distribution for grouped products
+        const quantities = distributeQuantity(p.quantity, product.product_ids.length);
+        
+        return {
+          ...p,
+          product_ids: product.product_ids,
+          quantities: quantities,
+          price: product.price
+        };
       });
 
       if (cardBalance < total) {
@@ -197,15 +228,15 @@ app.post("/api/order", async (req, res) => {
               .json({ error: `Database error: ${err.message}` });
           }
 
-          const cart = orderProducts.map((p) => ({
-            ...p,
-            failed: failedProducts.some((fp) => fp.id === p.id),
-            name:
-              allProducts.find((prod) => prod.id === p.id)?.name || "Unknown",
-            image:
-              allProducts.find((prod) => prod.id === p.id)?.image ||
-              "/images/fallback.jpg",
-          }));
+          const cart = orderProducts.map((p) => {
+            const product = allProducts.find((prod) => prod.display_id === p.id);
+            return {
+              ...p,
+              failed: failedProducts.some((fp) => fp.id === p.id),
+              name: product?.name || "Unknown",
+              image: product?.image || "/images/fallback.jpg",
+            };
+          });
 
           saveOrderSummary(userid, username, orderProducts, total, (err) => {
             if (err) {
@@ -215,7 +246,6 @@ app.post("/api/order", async (req, res) => {
               });
             }
 
-            // Record consumption only if ESP32 is connected
             if (getEsp32Status()) {
               recordConsumption(cardData, total).catch((err) => {
                 console.error("Error recording consumption:", err.message);
@@ -230,6 +260,7 @@ app.post("/api/order", async (req, res) => {
     });
   });
 });
+
 
 const imagePath = path.join(__dirname, process.env.IMAGE_UPLOAD_PATH);
 
@@ -279,7 +310,7 @@ app.post(
     }
     const image = `/images/${req.file.filename}`;
 
-    updateProduct(id, null, null, null, image, (err) => {
+    updateProduct(id, null, null, null, image, null, (err) => {
       if (err) {
         console.error(`Error updating product image ${id}:`, err.message);
         res.status(500).json({
@@ -473,10 +504,196 @@ app.get("/api/esp32-status", (req, res) => {
 
 app.post("/api/check-balance", async (req, res) => {
   const cardData = req.body.cardData;
-  const cardBalance = await checkCardBalance(cardData);
+  const cardBalance = 10000;  //@modify later
+  // const cardBalance = await checkCardBalance(cardData);
   return res.status(200).json({ success: true, balance: cardBalance });
 });
 
+// Get all groups
+app.get("/api/groups", authenticateAdmin, (req, res) => {
+  getAllGroups((err, groups) => {
+    if (err) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Failed to fetch groups" 
+      });
+    }
+    res.json({ success: true, groups });
+  });
+});
+
+// Get single group
+app.get("/api/groups/:id", authenticateAdmin, (req, res) => {
+  const { id } = req.params;
+  getGroupById(id, (err, group) => {
+    if (err) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Failed to fetch group" 
+      });
+    }
+    if (!group) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Group not found" 
+      });
+    }
+    res.json({ success: true, group });
+  });
+});
+
+// Create group
+app.post("/api/groups", authenticateAdmin, (req, res) => {
+  const { name, description } = req.body;
+  
+  if (!name) {
+    return res.status(400).json({ 
+      success: false, 
+      message: "Name is required" 
+    });
+  }
+
+  createGroup(name, description, (err, group) => {
+    if (err) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Failed to create group" 
+      });
+    }
+    res.json({ success: true, message: "Group created", group });
+  });
+});
+
+// Update group
+app.put("/api/groups/:id", authenticateAdmin, (req, res) => {
+  const { id } = req.params;
+  const { name, description } = req.body;
+
+  updateGroup(id, name, description, (err, group) => {
+    if (err) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Failed to update group" 
+      });
+    }
+    res.json({ success: true, message: "Group updated", group });
+  });
+});
+
+// Delete group
+app.delete("/api/groups/:id", authenticateAdmin, (req, res) => {
+  const { id } = req.params;
+  
+  deleteGroup(id, (err, changes) => {
+    if (err) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Failed to delete group" 
+      });
+    }
+    if (changes === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Group not found" 
+      });
+    }
+    res.json({ success: true, message: "Group deleted" });
+  });
+});
+
+// Get products for a specific group
+app.get("/api/groups/:id/products", authenticateAdmin, (req, res) => {
+  const { id } = req.params;
+  getProductsByGroupId(id, (err, products) => {
+    if (err) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Failed to fetch group products" 
+      });
+    }
+    res.json({ success: true, products });
+  });
+});
+
+// Assign products to a group
+app.post("/api/groups/:id/assign", authenticateAdmin, (req, res) => {
+  const { id } = req.params;
+  const { productIds } = req.body;
+
+  if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+    return res.status(400).json({ 
+      success: false, 
+      message: "Product IDs array is required" 
+    });
+  }
+
+  assignProductsToGroup(productIds, id, (err, changes) => {
+    if (err) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Failed to assign products to group" 
+      });
+    }
+    res.json({ 
+      success: true, 
+      message: `${changes} products assigned to group`,
+      changes 
+    });
+  });
+});
+
+// Remove products from group
+app.post("/api/groups/unassign", authenticateAdmin, (req, res) => {
+  const { productIds } = req.body;
+
+  if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+    return res.status(400).json({ 
+      success: false, 
+      message: "Product IDs array is required" 
+    });
+  }
+
+  removeProductsFromGroup(productIds, (err, changes) => {
+    if (err) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Failed to remove products from group" 
+      });
+    }
+    res.json({ 
+      success: true, 
+      message: `${changes} products removed from group`,
+      changes 
+    });
+  });
+});
+
+// Bulk update products in a group
+app.put("/api/groups/:id/products", authenticateAdmin, (req, res) => {
+  const { id } = req.params;
+  const { productIds, name, price } = req.body;
+
+  if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+    return res.status(400).json({ 
+      success: false, 
+      message: "Product IDs array is required" 
+    });
+  }
+
+  bulkUpdateGroupProducts(productIds, { name, price }, (err, changes) => {
+    if (err) {
+      return res.status(500).json({ 
+        success: false, 
+        message: "Failed to update products" 
+      });
+    }
+    res.json({ 
+      success: true, 
+      message: `${changes} products updated`,
+      changes 
+    });
+  });
+});
 app.listen(process.env.PORT || 5001, () => {
   console.log(`Server running on PORT ${process.env.PORT || 5001}`);
   // createUsersTable((err) => {

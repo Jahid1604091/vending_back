@@ -135,10 +135,24 @@ async function recordConsumption(cardData, amount) {
   }
 }
 
+function distributeQuantity(totalQty, numProducts) {
+  const perProduct = Math.floor(totalQty / numProducts);
+  const remainder = totalQty % numProducts;
+  const quantities = Array(numProducts).fill(perProduct);
+  
+  // Distribute remainder
+  for (let i = 0; i < remainder; i++) {
+    quantities[i]++;
+  }
+  
+  return quantities;
+}
+
 module.exports = {
   authRequest,
   login,
   refreshAccessToken,
   checkCardBalance,
   recordConsumption,
+  distributeQuantity
 };

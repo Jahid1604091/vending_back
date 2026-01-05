@@ -156,6 +156,23 @@ try {
           process.exit(1);
         } else {
           console.log("Products table created or already exists");
+
+          //add group_id
+          db.run(`ALTER TABLE products ADD COLUMN group_id INTEGER`,
+            (err)=>{
+              if(err){
+                if(err.message.includes("duplicate column name")){
+                  console.log('group_id already exists')
+                }
+                else{
+                  console.error("Error adding group_id ",err.message)
+                }
+              }
+              else{
+                console.log('group_id added to products table')
+              }
+            }
+          )
         }
       }
     );
@@ -177,6 +194,22 @@ try {
         }
       }
     );
+
+    db.run(
+  `CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT
+  )`,
+  (err) => {
+    if (err) {
+      console.error("Error creating groups table:", err.message);
+      process.exit(1);
+    } else {
+      console.log("Groups table created or already exists");
+    }
+  }
+);
   });
 } catch (err) {
   console.error("Database initialization error:", err.message);
@@ -193,7 +226,47 @@ function getAllProducts(callback) {
   });
 }
 
-function updateProduct(id, name, price, quantity, image, callback) {
+function getProductsGrouped(callback) {
+  const sql = `
+    SELECT 
+      COALESCE(group_id, id) as display_id,
+      CASE 
+        WHEN group_id IS NOT NULL THEN group_id
+        ELSE id
+      END as group_key,
+      group_id,
+      -- Pick the first product's details as representative
+      MIN(name) as name,
+      MIN(price) as price,
+      MIN(image) as image,
+      -- Sum all quantities in the group
+      SUM(quantity) as quantity,
+      -- Collect all product IDs in the group
+      GROUP_CONCAT(id) as product_ids
+    FROM products
+    GROUP BY 
+      CASE 
+        WHEN group_id IS NOT NULL THEN group_id
+        ELSE id
+      END
+    ORDER BY display_id
+  `;
+  
+  db.all(sql, [], (err, rows) => {
+    if (err) {
+      console.error("Error fetching grouped products:", err.message);
+      return callback(err);
+    }
+    // Convert product_ids string to array of integers
+    const result = rows.map(row => ({
+      ...row,
+      product_ids: row.product_ids.split(',').map(id => parseInt(id))
+    }));
+    callback(null, result);
+  });
+}
+
+function updateProduct(id, name, price, quantity, image, group_id, callback) {
   const fields = [];
   const values = [];
 
@@ -213,7 +286,10 @@ function updateProduct(id, name, price, quantity, image, callback) {
     fields.push("image = ?");
     values.push(image);
   }
-
+  if (group_id !== null && group_id !== undefined) {
+    fields.push("group_id = ?");
+    values.push(group_id);
+  }
   if (fields.length === 0) {
     return callback(new Error("No fields to update"));
   }
@@ -241,9 +317,18 @@ function placeOrder(orderProducts, callback) {
 
     try {
       orderProducts.forEach((p) => {
-        if (!p.failed) {
-          stmtUpdate.run(p.quantity, p.id, p.quantity);
-          stmtSale.run(p.id, p.quantity, new Date().toISOString());
+        if (!p.failed && p.product_ids && p.product_ids.length > 0) {
+          // Distribute quantity across grouped products
+          let remainingQty = p.quantity;
+          
+          p.product_ids.forEach((productId, index) => {
+            if (remainingQty > 0) {
+              const qtyToDeduct = Math.min(remainingQty, p.quantities[index] || remainingQty);
+              stmtUpdate.run(qtyToDeduct, productId, qtyToDeduct);
+              stmtSale.run(productId, qtyToDeduct, new Date().toISOString());
+              remainingQty -= qtyToDeduct;
+            }
+          });
         }
       });
       stmtUpdate.finalize();
@@ -367,6 +452,161 @@ async function loadTokens(userid) {
   });
 }
 
+function getAllGroups(callback) {
+  db.all("SELECT * FROM groups", [], (err, rows) => {
+    if (err) {
+      console.error("Error fetching groups:", err.message);
+      return callback(err);
+    }
+    callback(null, rows);
+  });
+}
+
+function getGroupById(id, callback) {
+  db.get("SELECT * FROM groups WHERE id = ?", [id], (err, row) => {
+    if (err) {
+      console.error("Error fetching group by id:", err.message);
+      return callback(err);
+    }
+    callback(null, row);
+  });
+}
+
+function createGroup(name, description, callback) {
+  db.run(
+    "INSERT INTO groups (name, description) VALUES (?, ?)",
+    [name, description],
+    function (err) {
+      if (err) {
+        console.error("Error creating group:", err.message);
+        return callback(err);
+      }
+      db.get("SELECT * FROM groups WHERE id = ?", [this.lastID], callback);
+    }
+  );
+}
+
+function updateGroup(id, name, description, callback) {
+  const fields = [];
+  const values = [];
+
+  if (name !== null && name !== undefined) {
+    fields.push("name = ?");
+    values.push(name);
+  }
+  if (description !== null && description !== undefined) {
+    fields.push("description = ?");
+    values.push(description);
+  }
+
+  if (fields.length === 0) {
+    return callback(new Error("No fields to update"));
+  }
+
+  const sql = `UPDATE groups SET ${fields.join(", ")} WHERE id = ?`;
+  values.push(id);
+
+  db.run(sql, values, function (err) {
+    if (err) {
+      console.error(`Error updating group ${id}:`, err.message);
+      return callback(err);
+    }
+    db.get("SELECT * FROM groups WHERE id = ?", [id], callback);
+  });
+}
+
+function deleteGroup(id, callback) {
+  db.run("DELETE FROM groups WHERE id = ?", [id], function (err) {
+    if (err) {
+      console.error(`Error deleting group ${id}:`, err.message);
+      return callback(err);
+    }
+    callback(null, this.changes);
+  });
+}
+function getAllProductsUngrouped(callback) {
+  db.all("SELECT * FROM products ORDER BY id", [], (err, rows) => {
+    if (err) {
+      console.error("Error fetching ungrouped products:", err.message);
+      return callback(err);
+    }
+    callback(null, rows);
+  });
+}
+
+// Get all products for a specific group
+function getProductsByGroupId(groupId, callback) {
+  db.all(
+    "SELECT * FROM products WHERE group_id = ? ORDER BY id",
+    [groupId],
+    (err, rows) => {
+      if (err) {
+        console.error("Error fetching products by group:", err.message);
+        return callback(err);
+      }
+      callback(null, rows);
+    }
+  );
+}
+
+// Assign products to a group
+function assignProductsToGroup(productIds, groupId, callback) {
+  const placeholders = productIds.map(() => '?').join(',');
+  const sql = `UPDATE products SET group_id = ? WHERE id IN (${placeholders})`;
+  
+  db.run(sql, [groupId, ...productIds], function(err) {
+    if (err) {
+      console.error("Error assigning products to group:", err.message);
+      return callback(err);
+    }
+    callback(null, this.changes);
+  });
+}
+
+// Remove products from group
+function removeProductsFromGroup(productIds, callback) {
+  const placeholders = productIds.map(() => '?').join(',');
+  const sql = `UPDATE products SET group_id = NULL WHERE id IN (${placeholders})`;
+  
+  db.run(sql, productIds, function(err) {
+    if (err) {
+      console.error("Error removing products from group:", err.message);
+      return callback(err);
+    }
+    callback(null, this.changes);
+  });
+}
+
+// Bulk update products in a group (name, price)
+function bulkUpdateGroupProducts(productIds, updates, callback) {
+  const { name, price } = updates;
+  const fields = [];
+  const values = [];
+
+  if (name !== null && name !== undefined) {
+    fields.push("name = ?");
+    values.push(name);
+  }
+  if (price !== null && price !== undefined) {
+    fields.push("price = ?");
+    values.push(price);
+  }
+
+  if (fields.length === 0) {
+    return callback(new Error("No fields to update"));
+  }
+
+  const placeholders = productIds.map(() => '?').join(',');
+  const sql = `UPDATE products SET ${fields.join(", ")} WHERE id IN (${placeholders})`;
+  
+  db.run(sql, [...values, ...productIds], function(err) {
+    if (err) {
+      console.error("Error bulk updating products:", err.message);
+      return callback(err);
+    }
+    callback(null, this.changes);
+  });
+}
 module.exports = {
   getAllProducts,
   updateProduct,
@@ -383,4 +623,15 @@ module.exports = {
   deleteUser,
   saveTokens,
   loadTokens,
+  getAllGroups,
+  getGroupById,
+  createGroup,
+  updateGroup,
+  deleteGroup,
+  getProductsGrouped,
+  getAllProductsUngrouped,
+   getProductsByGroupId,        // Add
+  assignProductsToGroup,        // Add
+  removeProductsFromGroup,      // Add
+  bulkUpdateGroupProducts,      // Add
 };

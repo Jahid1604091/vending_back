@@ -128,35 +128,63 @@ client.on("message", async (topic, message) => {
   }
 });
 
+// Update the sendOrderMQTT function to include logging callback
 function sendOrderMQTT(products, callback) {
   console.log("📦 Received order products:", products);
+  
   if (!client.connected) {
     console.error("❌ MQTT client not connected");
     return callback(new Error("MQTT client not connected"), {
       successfulProducts: [],
       failedProducts: products.map((p) => ({ ...p, failed: true })),
+      dispenseLogs: []
     });
   }
 
   const shelves = { 1: [], 2: [], 3: [], 4: [], 5: [] };
   const failedProducts = [];
+  const dispenseLogs = []; // Track all dispense attempts
 
   products.forEach((p) => {
-    const id = p.id;
-    const quantity = p.quantity;
-    let shelf;
-    if (id >= 1 && id <= 4) shelf = 1;
-    else if (id >= 5 && id <= 8) shelf = 2;
-    else if (id >= 9 && id <= 16) shelf = 3;
-    else if (id >= 17 && id <= 24) shelf = 4;
-    else if (id >= 25 && id <= 32) shelf = 5;
+    const productIds = p.product_ids || [p.id];
+    const quantities = p.quantities || [p.quantity];
+    
+    productIds.forEach((id, index) => {
+      const quantity = quantities[index];
+      if (quantity <= 0) return;
+      
+      let shelf;
+      if (id >= 1 && id <= 4) shelf = 1;
+      else if (id >= 5 && id <= 8) shelf = 2;
+      else if (id >= 9 && id <= 16) shelf = 3;
+      else if (id >= 17 && id <= 24) shelf = 4;
+      else if (id >= 25 && id <= 32) shelf = 5;
 
-    if (shelf && !shelfStatus[shelf]) {
-      console.log(`❌ Shelf ${shelf} is disconnected for product ID ${id}`);
-      failedProducts.push({ id, quantity, failed: true });
-    } else if (shelf) {
-      shelves[shelf].push({ id, quantity, message: `${id},${quantity}` });
-    }
+      if (shelf && !shelfStatus[shelf]) {
+        console.log(`❌ Shelf ${shelf} is disconnected for spring ID ${id}`);
+        failedProducts.push({ id: p.id, quantity: p.quantity, failed: true });
+        
+        // Log failed dispense
+        dispenseLogs.push({
+          shelf_number: shelf,
+          spring_id: id,
+          product_name: p.name || 'Unknown',
+          quantity: quantity,
+          group_id: p.group_id,
+          status: 'failed',
+          reason: 'shelf_disconnected'
+        });
+      } else if (shelf) {
+        shelves[shelf].push({ 
+          id, 
+          quantity, 
+          originalId: p.id,
+          name: p.name,
+          group_id: p.group_id,
+          message: `${id},${quantity}` 
+        });
+      }
+    });
   });
 
   let successfulProducts = [];
@@ -165,7 +193,7 @@ function sendOrderMQTT(products, callback) {
   function processShelves() {
     if (shelfIndex < 1) {
       console.log("✅ All shelves processed");
-      return callback(null, { successfulProducts, failedProducts });
+      return callback(null, { successfulProducts, failedProducts, dispenseLogs });
     }
 
     if (shelves[shelfIndex].length === 0) {
@@ -191,10 +219,22 @@ function sendOrderMQTT(products, callback) {
           `❌ Shelf ${shelfIndex} disconnected for item: ${item.message}`
         );
         failedProducts.push({
-          id: item.id,
+          id: item.originalId,
           quantity: item.quantity,
           failed: true,
         });
+
+        // Log failed dispense
+        dispenseLogs.push({
+          shelf_number: shelfIndex,
+          spring_id: item.id,
+          product_name: item.name,
+          quantity: item.quantity,
+          group_id: item.group_id,
+          status: 'failed',
+          reason: 'shelf_connection_lost'
+        });
+
         itemIndex++;
         return processItem();
       }
@@ -202,6 +242,8 @@ function sendOrderMQTT(products, callback) {
       console.log(
         `📤 Publishing to vending/shelf/${shelfIndex}: ${item.message}`
       );
+      console.log(`   └─ Spring ID: ${item.id}, Product: ${item.name}, Quantity: ${item.quantity}, Group: ${item.group_id || 'None'}`);
+      
       client.publish(
         `vending/shelf/${shelfIndex}`,
         item.message,
@@ -213,15 +255,49 @@ function sendOrderMQTT(products, callback) {
               err.message
             );
             failedProducts.push({
-              id: item.id,
+              id: item.originalId,
               quantity: item.quantity,
               failed: true,
+            });
+
+            // Log failed dispense
+            dispenseLogs.push({
+              shelf_number: shelfIndex,
+              spring_id: item.id,
+              product_name: item.name,
+              quantity: item.quantity,
+              group_id: item.group_id,
+              status: 'failed',
+              reason: 'mqtt_publish_error'
             });
           } else {
             console.log(
               `✅ Published to vending/shelf/${shelfIndex}: ${item.message}`
             );
-            successfulProducts.push({ id: item.id, quantity: item.quantity });
+            console.log(`   └─ Dispensed from Spring ${item.id}`);
+            
+            // Check if this product is already in successfulProducts
+            const existing = successfulProducts.find(p => p.id === item.originalId);
+            if (existing) {
+              existing.quantity += item.quantity;
+            } else {
+              successfulProducts.push({ 
+                id: item.originalId, 
+                quantity: item.quantity,
+                product_ids: [item.id],
+                quantities: [item.quantity]
+              });
+            }
+
+            // Log successful dispense
+            dispenseLogs.push({
+              shelf_number: shelfIndex,
+              spring_id: item.id,
+              product_name: item.name,
+              quantity: item.quantity,
+              group_id: item.group_id,
+              status: 'success'
+            });
           }
           itemIndex++;
           setTimeout(processItem, 1000);
@@ -234,6 +310,9 @@ function sendOrderMQTT(products, callback) {
 
   processShelves();
 }
+
+// Update exports
+module.exports = { sendOrderMQTT, getEsp32Status, getCardData };
 
 function getEsp32Status() {
   return Object.values(shelfStatus).some((status) => status);
