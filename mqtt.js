@@ -4,8 +4,10 @@ const dotenv = require("dotenv");
 const { checkCardBalance } = require("./utils");
 dotenv.config();
 
-let shelfStatus = { 1: false, 2: false, 3: false, 4: false, 5: false };
-let lastHeartbeat = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+let shelfStatus = { 1: true, 2: true, 3: true, 4: true, 5: true };
+let lastHeartbeat = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 };
+// let shelfStatus = { 1: false, 2: false, 3: false, 4: false, 5: false };
+// let lastHeartbeat = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 let cardData = null;
 
 const client = mqtt.connect(
@@ -17,17 +19,17 @@ const client = mqtt.connect(
   }
 );
 
-setInterval(() => {
-  const now = Date.now();
-  for (let shelf = 1; shelf <= 5; shelf++) {
-    if (now - lastHeartbeat[shelf] > 30000) {
-      if (shelfStatus[shelf]) {
-        shelfStatus[shelf] = false;
-        console.log(`❌ Shelf ${shelf} marked as Disconnected (no heartbeat)`);
-      }
-    }
-  }
-}, 5000);
+// setInterval(() => {
+//   const now = Date.now();
+//   for (let shelf = 1; shelf <= 5; shelf++) {
+//     if (now - lastHeartbeat[shelf] > 30000) {
+//       if (shelfStatus[shelf]) {
+//         shelfStatus[shelf] = false;
+//         console.log(`❌ Shelf ${shelf} marked as Disconnected (no heartbeat)`);
+//       }
+//     }
+//   }
+// }, 5000);
 
 client.on("connect", () => {
   console.log("✅ MQTT connected to broker");
@@ -46,14 +48,14 @@ client.on("error", (err) => {
   console.error("❌ MQTT connection error:", err.message);
 });
 
-client.on("close", () => {
-  console.log("❌ MQTT connection closed, attempting to reconnect...");
-  for (let shelf = 1; shelf <= 5; shelf++) {
-    shelfStatus[shelf] = false;
-    console.log(`❌ Shelf ${shelf} marked as Disconnected (connection closed)`);
-  }
-  cardData = null;
-});
+// client.on("close", () => {
+//   console.log("❌ MQTT connection closed, attempting to reconnect...");
+//   for (let shelf = 1; shelf <= 5; shelf++) {
+//     shelfStatus[shelf] = false;
+//     console.log(`❌ Shelf ${shelf} marked as Disconnected (connection closed)`);
+//   }
+//   cardData = null;
+// });
 
 client.on("message", async (topic, message) => {
   try {
@@ -128,7 +130,6 @@ client.on("message", async (topic, message) => {
   }
 });
 
-// Update the sendOrderMQTT function to include logging callback
 function sendOrderMQTT(products, callback) {
   console.log("📦 Received order products:", products);
   

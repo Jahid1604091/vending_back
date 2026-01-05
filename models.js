@@ -607,6 +607,63 @@ function bulkUpdateGroupProducts(productIds, updates, callback) {
     callback(null, this.changes);
   });
 }
+
+// Add this function
+function getSpringsByIds(productIds, callback) {
+  const placeholders = productIds.map(() => '?').join(',');
+  const sql = `SELECT id, name, quantity, price, image, group_id FROM products WHERE id IN (${placeholders}) ORDER BY id`;
+  
+  db.all(sql, productIds, (err, rows) => {
+    if (err) {
+      console.error("Error fetching springs by IDs:", err.message);
+      return callback(err);
+    }
+    callback(null, rows);
+  });
+}
+
+// Smart distribution: prioritize springs with stock, skip empty ones
+async function smartDistributeQuantity(orderedQty, productIds) {
+  return new Promise((resolve, reject) => {
+    // Get actual stock for each spring in the group
+    const placeholders = productIds.map(() => '?').join(',');
+    const sql = `SELECT id, quantity FROM products WHERE id IN (${placeholders}) ORDER BY id`;
+    
+    db.all(sql, productIds, (err, springs) => {
+      if (err) {
+        console.error("Error fetching spring stock:", err.message);
+        return reject(err);
+      }
+
+      const distribution = [];
+      let remaining = orderedQty;
+
+      // Distribute across springs in order, prioritizing those with stock
+      for (const spring of springs) {
+        if (remaining <= 0) break;
+        
+        if (spring.quantity > 0) {
+          const takeFromThisSpring = Math.min(remaining, spring.quantity);
+          distribution.push({
+            spring_id: spring.id,
+            quantity: takeFromThisSpring,
+            available: spring.quantity
+          });
+          remaining -= takeFromThisSpring;
+          console.log(`📊 Smart distribution: Spring ${spring.id} → ${takeFromThisSpring} items (${spring.quantity} available)`);
+        } else {
+          console.log(`⚠️ Skipping Spring ${spring.id} - Out of stock`);
+        }
+      }
+
+      if (remaining > 0) {
+        console.warn(`⚠️ Could not fulfill full order. Short by ${remaining} items`);
+      }
+
+      resolve(distribution);
+    });
+  });
+}
 module.exports = {
   getAllProducts,
   updateProduct,
@@ -630,8 +687,10 @@ module.exports = {
   deleteGroup,
   getProductsGrouped,
   getAllProductsUngrouped,
-   getProductsByGroupId,        // Add
-  assignProductsToGroup,        // Add
-  removeProductsFromGroup,      // Add
-  bulkUpdateGroupProducts,      // Add
+   getProductsByGroupId,        
+  assignProductsToGroup,        
+  removeProductsFromGroup,      
+  bulkUpdateGroupProducts,      
+  getSpringsByIds,
+  smartDistributeQuantity
 };

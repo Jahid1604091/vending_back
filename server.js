@@ -33,9 +33,10 @@ const {
   removeProductsFromGroup,
   assignProductsToGroup,
   getProductsByGroupId,
+  smartDistributeQuantity,
 } = require("./models");
 const { sendOrderMQTT, getEsp32Status, getCardData } = require("./mqtt");
-const { checkCardBalance, recordConsumption, distributeQuantity } = require("./utils");
+const { checkCardBalance, recordConsumption } = require("./utils");
 
 const app = express();
 app.use(cors());
@@ -174,7 +175,7 @@ app.post("/api/order", async (req, res) => {
       return res.status(400).json({ error: "Invalid user! " });
     }
 
-    getProductsGrouped((err, allProducts) => {
+    getProductsGrouped(async (err, allProducts) => {
       if (err) {
         console.error("Error fetching products for order:", err.message);
         return res
@@ -182,81 +183,115 @@ app.post("/api/order", async (req, res) => {
           .json({ error: `Failed to fetch products: ${err.message}` });
       }
 
-      let total = 0;
-      const validProducts = orderProducts.map((p) => {
-        const product = allProducts.find((prod) => prod.display_id === p.id);
-        if (!product || product.quantity < p.quantity) {
-          return { ...p, failed: true };
-        }
-        total += product.price * p.quantity;
-        
-        // Prepare quantity distribution for grouped products
-        const quantities = distributeQuantity(p.quantity, product.product_ids.length);
-        
-        return {
-          ...p,
-          product_ids: product.product_ids,
-          quantities: quantities,
-          price: product.price
-        };
-      });
+      try {
+        let total = 0;
+        const validProducts = [];
 
-      if (cardBalance < total) {
-        console.log("Order failed: Insufficient cardBalance:", {
-          cardBalance,
-          total,
-        });
-        return res.status(400).json({ error: "Insufficient cardBalance" });
-      }
-
-      sendOrderMQTT(validProducts, (err, result) => {
-        if (err) {
-          console.error("Order error:", err.message);
-          return res
-            .status(500)
-            .json({ error: `Order failed: ${err.message}` });
-        }
-
-        const { successfulProducts, failedProducts } = result;
-        console.log("Order processed:", { successfulProducts, failedProducts });
-
-        placeOrder(successfulProducts, (err) => {
-          if (err) {
-            console.error("Database error:", err.message);
-            return res
-              .status(500)
-              .json({ error: `Database error: ${err.message}` });
+        // Process each ordered product with smart distribution
+        for (const p of orderProducts) {
+          const product = allProducts.find((prod) => prod.display_id === p.id);
+          
+          if (!product || product.quantity < p.quantity) {
+            validProducts.push({ ...p, failed: true });
+            continue;
           }
 
-          const cart = orderProducts.map((p) => {
-            const product = allProducts.find((prod) => prod.display_id === p.id);
-            return {
-              ...p,
-              failed: failedProducts.some((fp) => fp.id === p.id),
-              name: product?.name || "Unknown",
-              image: product?.image || "/images/fallback.jpg",
-            };
+          total += product.price * p.quantity;
+
+          // Smart distribution based on actual spring stock
+          const distribution = await smartDistributeQuantity(
+            p.quantity, 
+            product.product_ids
+          );
+
+          if (distribution.length === 0) {
+            console.log(`❌ No springs available for product ${p.id}`);
+            validProducts.push({ ...p, failed: true });
+            continue;
+          }
+
+          // Calculate actual quantity that can be dispensed
+          const actualQuantity = distribution.reduce((sum, d) => sum + d.quantity, 0);
+          
+          if (actualQuantity < p.quantity) {
+            console.warn(`⚠️ Partial fulfillment: Requested ${p.quantity}, can dispense ${actualQuantity}`);
+          }
+
+          validProducts.push({
+            ...p,
+            name: product.name,
+            product_ids: distribution.map(d => d.spring_id),
+            quantities: distribution.map(d => d.quantity),
+            actualQuantity: actualQuantity,
+            price: product.price,
+            group_id: product.group_id
           });
+        }
 
-          saveOrderSummary(userid, username, orderProducts, total, (err) => {
+        if (cardBalance < total) {
+          console.log("Order failed: Insufficient cardBalance:", {
+            cardBalance,
+            total,
+          });
+          return res.status(400).json({ error: "Insufficient cardBalance" });
+        }
+
+        // Pass user data to MQTT function
+        sendOrderMQTT(validProducts, (err, result) => {
+          if (err) {
+            console.error("Order error:", err.message);
+            return res
+              .status(500)
+              .json({ error: `Order failed: ${err.message}` });
+          }
+
+          const { successfulProducts, failedProducts, dispenseLogs } = result;
+          console.log("Order processed:", { successfulProducts, failedProducts });
+
+          placeOrder(successfulProducts, (err) => {
             if (err) {
-              console.error("Error saving order summary:", err.message);
-              return res.status(500).json({
-                error: `Failed to save order summary: ${err.message}`,
-              });
+              console.error("Database error:", err.message);
+              return res
+                .status(500)
+                .json({ error: `Database error: ${err.message}` });
             }
 
-            if (getEsp32Status()) {
-              recordConsumption(cardData, total).catch((err) => {
-                console.error("Error recording consumption:", err.message);
-              });
-            }
+            const cart = orderProducts.map((p) => {
+              const product = allProducts.find((prod) => prod.display_id === p.id);
+              return {
+                ...p,
+                failed: failedProducts.some((fp) => fp.id === p.id),
+                name: product?.name || "Unknown",
+                image: product?.image || "/images/fallback.jpg",
+              };
+            });
 
-            console.log("Order placed successfully:", cart);
-            res.json({ success: true, message: "Order processed", cart });
+            saveOrderSummary(userid, username, orderProducts, total, (err, orderId) => {
+              if (err) {
+                console.error("Error saving order summary:", err.message);
+                return res.status(500).json({
+                  error: `Failed to save order summary: ${err.message}`,
+                });
+              }
+
+
+              if (getEsp32Status()) {
+                recordConsumption(cardData, total).catch((err) => {
+                  console.error("Error recording consumption:", err.message);
+                });
+              }
+
+              console.log("Order placed successfully:", cart);
+              res.json({ success: true, message: "Order processed", cart });
+            });
           });
         });
-      });
+      } catch (error) {
+        console.error("Order processing error:", error);
+        return res.status(500).json({ 
+          error: `Order processing failed: ${error.message}` 
+        });
+      }
     });
   });
 });
@@ -499,7 +534,8 @@ app.put("/api/admin", authenticateAdmin, async (req, res) => {
 
 app.get("/api/esp32-status", (req, res) => {
   console.log("GET /api/esp32-status");
-  res.json({ connected: getEsp32Status() });
+  res.json({ connected: true });
+  // res.json({ connected: getEsp32Status() });
 });
 
 app.post("/api/check-balance", async (req, res) => {
