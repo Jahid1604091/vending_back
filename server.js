@@ -126,7 +126,7 @@ app.put("/api/products/:id", authenticateAdmin, (req, res) => {
     }
   });
 });
-// Add this new endpoint for admin panel
+
 app.get("/api/products/all", authenticateAdmin, (req, res) => {
   getAllProductsUngrouped((err, rows) => {
     if (err) {
@@ -162,7 +162,7 @@ app.post("/api/order", async (req, res) => {
   }
 
   const { userid, username, credit } = cardData;
-  const cardBalance = 10000; //@modify later
+  const cardBalance = process.env.ENV === 'test' ? 10000 : await checkCardBalance(cardData);
 
   if (!userid || cardBalance <= 0) {
     console.log("Order failed: Invalid card data:", cardBalance);
@@ -380,7 +380,6 @@ app.get("/api/users", authenticateAdmin, (req, res) => {
 
 app.post("/api/users", authenticateAdmin, (req, res) => {
   const { userid, name } = req.body;
-  console.log(`POST /api/users: userid=${userid}, name=${name}`);
   if (!userid || !name) {
     console.log("Add user failed: Missing userid or name");
     return res.status(400).json({ error: "Missing userid or name" });
@@ -402,7 +401,6 @@ app.post("/api/users", authenticateAdmin, (req, res) => {
 
 app.delete("/api/users/:userid", authenticateAdmin, (req, res) => {
   const { userid } = req.params;
-  console.log(`DELETE /api/users/${userid}`);
   deleteUser(userid, (err, changes) => {
     if (err) {
       console.error(`Error deleting user ${userid}:`, err.message);
@@ -540,8 +538,7 @@ app.get("/api/esp32-status", (req, res) => {
 
 app.post("/api/check-balance", async (req, res) => {
   const cardData = req.body.cardData;
-  const cardBalance = 10000;  //@modify later
-  // const cardBalance = await checkCardBalance(cardData);
+  const cardBalance = process.env.ENV === 'test' ? 10000: await checkCardBalance(cardData);
   return res.status(200).json({ success: true, balance: cardBalance });
 });
 
@@ -730,6 +727,7 @@ app.put("/api/groups/:id/products", authenticateAdmin, (req, res) => {
     });
   });
 });
+
 app.listen(process.env.PORT || 5001, () => {
   console.log(`Server running on PORT ${process.env.PORT || 5001}`);
   // createUsersTable((err) => {

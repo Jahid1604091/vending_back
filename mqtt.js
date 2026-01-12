@@ -3,11 +3,17 @@ const { addUser } = require("./models");
 const dotenv = require("dotenv");
 const { checkCardBalance } = require("./utils");
 dotenv.config();
+let shelfStatus, lastHeartbeat;
 
-let shelfStatus = { 1: true, 2: true, 3: true, 4: true, 5: true };
-let lastHeartbeat = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 };
-// let shelfStatus = { 1: false, 2: false, 3: false, 4: false, 5: false };
-// let lastHeartbeat = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+if (process.env.ENV === 'test') {
+  shelfStatus = { 1: true, 2: true, 3: true, 4: true, 5: true };
+  lastHeartbeat = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 };
+
+}
+else {
+  shelfStatus = { 1: false, 2: false, 3: false, 4: false, 5: false };
+  lastHeartbeat = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+}
 let cardData = null;
 
 const client = mqtt.connect(
@@ -19,17 +25,20 @@ const client = mqtt.connect(
   }
 );
 
-// setInterval(() => {
-//   const now = Date.now();
-//   for (let shelf = 1; shelf <= 5; shelf++) {
-//     if (now - lastHeartbeat[shelf] > 30000) {
-//       if (shelfStatus[shelf]) {
-//         shelfStatus[shelf] = false;
-//         console.log(`❌ Shelf ${shelf} marked as Disconnected (no heartbeat)`);
-//       }
-//     }
-//   }
-// }, 5000);
+setInterval(() => {
+  if(process.env.ENV === 'test'){
+    return
+  }
+  const now = Date.now();
+  for (let shelf = 1; shelf <= 5; shelf++) {
+    if (now - lastHeartbeat[shelf] > 30000) {
+      if (shelfStatus[shelf]) {
+        shelfStatus[shelf] = false;
+        console.log(`❌ Shelf ${shelf} marked as Disconnected (no heartbeat)`);
+      }
+    }
+  }
+}, 5000);
 
 client.on("connect", () => {
   console.log("✅ MQTT connected to broker");
@@ -48,14 +57,17 @@ client.on("error", (err) => {
   console.error("❌ MQTT connection error:", err.message);
 });
 
-// client.on("close", () => {
-//   console.log("❌ MQTT connection closed, attempting to reconnect...");
-//   for (let shelf = 1; shelf <= 5; shelf++) {
-//     shelfStatus[shelf] = false;
-//     console.log(`❌ Shelf ${shelf} marked as Disconnected (connection closed)`);
-//   }
-//   cardData = null;
-// });
+client.on("close", () => {
+  if(process.env.ENV === 'test'){
+    return;
+  }
+  console.log("❌ MQTT connection closed, attempting to reconnect...");
+  for (let shelf = 1; shelf <= 5; shelf++) {
+    shelfStatus[shelf] = false;
+    console.log(`❌ Shelf ${shelf} marked as Disconnected (connection closed)`);
+  }
+  cardData = null;
+});
 
 client.on("message", async (topic, message) => {
   try {
@@ -79,7 +91,7 @@ client.on("message", async (topic, message) => {
           typeof data.userid &&
           data.userid &&
           typeof data.username === "string" &&
-          data.username 
+          data.username
         ) {
           cardData = {
             userid: data.userid,
@@ -132,7 +144,7 @@ client.on("message", async (topic, message) => {
 
 function sendOrderMQTT(products, callback) {
   console.log("📦 Received order products:", products);
-  
+
   if (!client.connected) {
     console.error("❌ MQTT client not connected");
     return callback(new Error("MQTT client not connected"), {
@@ -149,11 +161,11 @@ function sendOrderMQTT(products, callback) {
   products.forEach((p) => {
     const productIds = p.product_ids || [p.id];
     const quantities = p.quantities || [p.quantity];
-    
+
     productIds.forEach((id, index) => {
       const quantity = quantities[index];
       if (quantity <= 0) return;
-      
+
       let shelf;
       if (id >= 1 && id <= 4) shelf = 1;
       else if (id >= 5 && id <= 8) shelf = 2;
@@ -164,7 +176,7 @@ function sendOrderMQTT(products, callback) {
       if (shelf && !shelfStatus[shelf]) {
         console.log(`❌ Shelf ${shelf} is disconnected for spring ID ${id}`);
         failedProducts.push({ id: p.id, quantity: p.quantity, failed: true });
-        
+
         // Log failed dispense
         dispenseLogs.push({
           shelf_number: shelf,
@@ -176,13 +188,13 @@ function sendOrderMQTT(products, callback) {
           reason: 'shelf_disconnected'
         });
       } else if (shelf) {
-        shelves[shelf].push({ 
-          id, 
-          quantity, 
+        shelves[shelf].push({
+          id,
+          quantity,
           originalId: p.id,
           name: p.name,
           group_id: p.group_id,
-          message: `${id},${quantity}` 
+          message: `${id},${quantity}`
         });
       }
     });
@@ -244,7 +256,7 @@ function sendOrderMQTT(products, callback) {
         `📤 Publishing to vending/shelf/${shelfIndex}: ${item.message}`
       );
       console.log(`   └─ Spring ID: ${item.id}, Product: ${item.name}, Quantity: ${item.quantity}, Group: ${item.group_id || 'None'}`);
-      
+
       client.publish(
         `vending/shelf/${shelfIndex}`,
         item.message,
@@ -276,14 +288,14 @@ function sendOrderMQTT(products, callback) {
               `✅ Published to vending/shelf/${shelfIndex}: ${item.message}`
             );
             console.log(`   └─ Dispensed from Spring ${item.id}`);
-            
+
             // Check if this product is already in successfulProducts
             const existing = successfulProducts.find(p => p.id === item.originalId);
             if (existing) {
               existing.quantity += item.quantity;
             } else {
-              successfulProducts.push({ 
-                id: item.originalId, 
+              successfulProducts.push({
+                id: item.originalId,
                 quantity: item.quantity,
                 product_ids: [item.id],
                 quantities: [item.quantity]

@@ -159,16 +159,16 @@ try {
 
           //add group_id
           db.run(`ALTER TABLE products ADD COLUMN group_id INTEGER`,
-            (err)=>{
-              if(err){
-                if(err.message.includes("duplicate column name")){
+            (err) => {
+              if (err) {
+                if (err.message.includes("duplicate column name")) {
                   console.log('group_id already exists')
                 }
-                else{
-                  console.error("Error adding group_id ",err.message)
+                else {
+                  console.error("Error adding group_id ", err.message)
                 }
               }
-              else{
+              else {
                 console.log('group_id added to products table')
               }
             }
@@ -196,20 +196,20 @@ try {
     );
 
     db.run(
-  `CREATE TABLE IF NOT EXISTS groups (
+      `CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT
   )`,
-  (err) => {
-    if (err) {
-      console.error("Error creating groups table:", err.message);
-      process.exit(1);
-    } else {
-      console.log("Groups table created or already exists");
-    }
-  }
-);
+      (err) => {
+        if (err) {
+          console.error("Error creating groups table:", err.message);
+          process.exit(1);
+        } else {
+          console.log("Groups table created or already exists");
+        }
+      }
+    );
   });
 } catch (err) {
   console.error("Database initialization error:", err.message);
@@ -251,7 +251,7 @@ function getProductsGrouped(callback) {
       END
     ORDER BY display_id
   `;
-  
+
   db.all(sql, [], (err, rows) => {
     if (err) {
       console.error("Error fetching grouped products:", err.message);
@@ -320,7 +320,7 @@ function placeOrder(orderProducts, callback) {
         if (!p.failed && p.product_ids && p.product_ids.length > 0) {
           // Distribute quantity across grouped products
           let remainingQty = p.quantity;
-          
+
           p.product_ids.forEach((productId, index) => {
             if (remainingQty > 0) {
               const qtyToDeduct = Math.min(remainingQty, p.quantities[index] || remainingQty);
@@ -524,6 +524,7 @@ function deleteGroup(id, callback) {
     callback(null, this.changes);
   });
 }
+
 function getAllProductsUngrouped(callback) {
   db.all("SELECT * FROM products ORDER BY id", [], (err, rows) => {
     if (err) {
@@ -553,8 +554,8 @@ function getProductsByGroupId(groupId, callback) {
 function assignProductsToGroup(productIds, groupId, callback) {
   const placeholders = productIds.map(() => '?').join(',');
   const sql = `UPDATE products SET group_id = ? WHERE id IN (${placeholders})`;
-  
-  db.run(sql, [groupId, ...productIds], function(err) {
+
+  db.run(sql, [groupId, ...productIds], function (err) {
     if (err) {
       console.error("Error assigning products to group:", err.message);
       return callback(err);
@@ -567,8 +568,8 @@ function assignProductsToGroup(productIds, groupId, callback) {
 function removeProductsFromGroup(productIds, callback) {
   const placeholders = productIds.map(() => '?').join(',');
   const sql = `UPDATE products SET group_id = NULL WHERE id IN (${placeholders})`;
-  
-  db.run(sql, productIds, function(err) {
+
+  db.run(sql, productIds, function (err) {
     if (err) {
       console.error("Error removing products from group:", err.message);
       return callback(err);
@@ -598,8 +599,8 @@ function bulkUpdateGroupProducts(productIds, updates, callback) {
 
   const placeholders = productIds.map(() => '?').join(',');
   const sql = `UPDATE products SET ${fields.join(", ")} WHERE id IN (${placeholders})`;
-  
-  db.run(sql, [...values, ...productIds], function(err) {
+
+  db.run(sql, [...values, ...productIds], function (err) {
     if (err) {
       console.error("Error bulk updating products:", err.message);
       return callback(err);
@@ -612,7 +613,7 @@ function bulkUpdateGroupProducts(productIds, updates, callback) {
 function getSpringsByIds(productIds, callback) {
   const placeholders = productIds.map(() => '?').join(',');
   const sql = `SELECT id, name, quantity, price, image, group_id FROM products WHERE id IN (${placeholders}) ORDER BY id`;
-  
+
   db.all(sql, productIds, (err, rows) => {
     if (err) {
       console.error("Error fetching springs by IDs:", err.message);
@@ -628,7 +629,7 @@ async function smartDistributeQuantity(orderedQty, productIds) {
     // Get actual stock for each spring in the group
     const placeholders = productIds.map(() => '?').join(',');
     const sql = `SELECT id, quantity FROM products WHERE id IN (${placeholders}) ORDER BY id`;
-    
+
     db.all(sql, productIds, (err, springs) => {
       if (err) {
         console.error("Error fetching spring stock:", err.message);
@@ -641,7 +642,7 @@ async function smartDistributeQuantity(orderedQty, productIds) {
       // Distribute across springs in order, prioritizing those with stock
       for (const spring of springs) {
         if (remaining <= 0) break;
-        
+
         if (spring.quantity > 0) {
           const takeFromThisSpring = Math.min(remaining, spring.quantity);
           distribution.push({
@@ -687,10 +688,10 @@ module.exports = {
   deleteGroup,
   getProductsGrouped,
   getAllProductsUngrouped,
-   getProductsByGroupId,        
-  assignProductsToGroup,        
-  removeProductsFromGroup,      
-  bulkUpdateGroupProducts,      
+  getProductsByGroupId,
+  assignProductsToGroup,
+  removeProductsFromGroup,
+  bulkUpdateGroupProducts,
   getSpringsByIds,
   smartDistributeQuantity
 };
