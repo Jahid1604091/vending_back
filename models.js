@@ -226,30 +226,84 @@ function getAllProducts(callback) {
   });
 }
 
+// function getProductsGrouped(callback) {
+//   const sql = `
+//     SELECT 
+//       COALESCE(group_id, id) as display_id,
+//       CASE 
+//         WHEN group_id IS NOT NULL THEN group_id
+//         ELSE id
+//       END as group_key,
+//       group_id,
+//       -- Pick the first product's details as representative
+//       MIN(name) as name,
+//       MIN(price) as price,
+//       MIN(image) as image,
+//       -- Sum all quantities in the group
+//       SUM(quantity) as quantity,
+//       -- Collect all product IDs in the group
+//       GROUP_CONCAT(id) as product_ids
+//     FROM products
+//     GROUP BY 
+//       CASE 
+//         WHEN group_id IS NOT NULL THEN group_id
+//         ELSE id
+//       END
+//     ORDER BY display_id
+//   `;
+
+//   db.all(sql, [], (err, rows) => {
+//     if (err) {
+//       console.error("Error fetching grouped products:", err.message);
+//       return callback(err);
+//     }
+//     // Convert product_ids string to array of integers
+//     const result = rows.map(row => ({
+//       ...row,
+//       product_ids: row.product_ids.split(',').map(id => parseInt(id))
+//     }));
+//     callback(null, result);
+//   });
+// }
+
 function getProductsGrouped(callback) {
   const sql = `
     SELECT 
-      COALESCE(group_id, id) as display_id,
+      COALESCE(p.group_id, p.id) AS display_id,
+
       CASE 
-        WHEN group_id IS NOT NULL THEN group_id
-        ELSE id
-      END as group_key,
-      group_id,
-      -- Pick the first product's details as representative
-      MIN(name) as name,
-      MIN(price) as price,
-      MIN(image) as image,
-      -- Sum all quantities in the group
-      SUM(quantity) as quantity,
-      -- Collect all product IDs in the group
-      GROUP_CONCAT(id) as product_ids
-    FROM products
+        WHEN p.group_id IS NOT NULL THEN p.group_id
+        ELSE p.id
+      END AS group_key,
+
+      p.group_id,
+
+      -- Product representative fields
+      MIN(p.name) AS name,
+      MIN(p.price) AS price,
+      MIN(p.image) AS image,
+
+      -- ✅ Group description from groups table
+      g.description AS description,
+
+      -- Aggregates
+      SUM(p.quantity) AS quantity,
+
+      -- Collect product IDs
+      GROUP_CONCAT(p.id) AS product_ids
+
+    FROM products p
+    LEFT JOIN groups g 
+      ON g.id = p.group_id
+
     GROUP BY 
       CASE 
-        WHEN group_id IS NOT NULL THEN group_id
-        ELSE id
-      END
-    ORDER BY display_id
+        WHEN p.group_id IS NOT NULL THEN p.group_id
+        ELSE p.id
+      END,
+      g.description
+
+    ORDER BY display_id;
   `;
 
   db.all(sql, [], (err, rows) => {
@@ -257,11 +311,14 @@ function getProductsGrouped(callback) {
       console.error("Error fetching grouped products:", err.message);
       return callback(err);
     }
-    // Convert product_ids string to array of integers
+
     const result = rows.map(row => ({
       ...row,
-      product_ids: row.product_ids.split(',').map(id => parseInt(id))
+      product_ids: row.product_ids
+        ? row.product_ids.split(',').map(id => parseInt(id))
+        : [],
     }));
+
     callback(null, result);
   });
 }
